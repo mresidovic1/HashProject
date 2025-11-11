@@ -1,4 +1,6 @@
 #include "util.h"
+#include <random>
+#include <chrono>
 
 std::string generateSalt(int length){
     static const char alphanum[] = 
@@ -13,14 +15,14 @@ std::string generateSalt(int length){
 }
 
 std::string generatePepper(int length){
-    return generateSalt(length); 
+    return generateSalt(length);
+}
+
+std::string generateRandomPassword(int length){
+    return generateSalt(length);
 }
 
 uint64_t currentTimeMillis(){
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
-}
-
-std::string generateRandomPassword(int length){
-    return generateSalt(length);
 }
