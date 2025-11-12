@@ -1,33 +1,33 @@
 #include "iterative_hash.h"
 #include "sha256.h"
-#include <functional>
-#include <openssl/sha.h>
-#include <sstream>
-#include <iomanip>
+#include "simple_hash.h"
 
-std::string iterativeHash(const std::string &input, int iterations) {
-    std::string h = input;
-    for (int i = 0; i < iterations; i++) {
-        h = optimizedSHA256(h);
+namespace IterativeHash {
+
+std::string iterativeSHA256(const std::string& input, int iterations) {
+    std::string hash = input;
+    
+    for (int i = 0; i < iterations; ++i) {
+        hash = CryptoHash::sha256(hash);
     }
-    return h;
+    
+    return hash;
 }
 
-std::string optimizedSHA256(const std::string &data) {
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256(reinterpret_cast<const unsigned char*>(data.c_str()), data.size(), hash);
-
-    std::ostringstream oss;
-    for (int i = 0; i < SHA256_DIGEST_LENGTH; ++i) {
-        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
-    }
-    return oss.str();
+std::string iterativeSHA256WithSalt(const std::string& input, 
+                                    const std::string& salt,
+                                    int iterations) {
+    std::string combined = input + salt;
+    return iterativeSHA256(combined, iterations);
 }
 
-std::string optimizedSimpleHash(const std::string &input) {
-    std::hash<std::string> hasher;
-    size_t hashValue = hasher(input);
-    return std::to_string(hashValue);
+} // namespace IterativeHash
+
+// Backward compatibility functions
+std::string iterativeHash(const std::string& input, int iterations) {
+    return IterativeHash::iterativeSHA256(input, iterations);
 }
 
-// Uklonjena implementacija simpleHash jer je već definisana u simple_hash.cpp
+std::string simpleHash(const std::string& input) {
+    return SimpleHash::djb2Hash(input);
+}

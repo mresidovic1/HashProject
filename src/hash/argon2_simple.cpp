@@ -1,92 +1,98 @@
 #include "argon2_simple.h"
+#include "pbkdf2.h"
 #include "sha256.h"
-#include <openssl/sha.h>
+#include "../util/util.h"
 #include <sstream>
-#include <iomanip>
-#include <cstring>
+#include <vector>
 
-std::string Argon2Simple::hash(const std::string& password, const std::string& salt,
-                                int timeCost, int memoryCost, int parallelism) {
-    // Alokacija memorije (memory-hard svojstvo)
-    int blocks = memoryCost / 16; // 16KB blokova
-    std::vector<std::vector<uint8_t>> memory(blocks, std::vector<uint8_t>(1024));
+namespace CryptoHash {
+
+/**
+ * This is a simplified educational implementation that simulates
+ * memory-hard properties. A real Argon2 implementation would use
+ * the full Argon2 algorithm with Blake2b hashing.
+ */
+
+std::string argon2Simple(const std::string& password,
+                         const std::string& salt,
+                         int memoryCostKB,
+                         int timeCost) {
     
-    // Inicijalizacija memorije sa kombinacijom password i salt
-    fillMemory(memory, password, salt);
+    // Step 1: Initial hash with PBKDF2
+    // We use more iterations to simulate time cost
+    int iterations = timeCost * 100000;
+    std::string initialHash = pbkdf2(password, salt, iterations, 32);
     
-    // Time cost - višestruke iteracije kroz memoriju
+    // Step 2: Memory-hard phase simulation
+    // Create a memory buffer and fill it with derived data
+    // This simulates the memory-hard property of Argon2
+    int memoryBlocks = memoryCostKB / 4; // Simplified: 4KB per block
+    if (memoryBlocks < 1) memoryBlocks = 1;
+    
+    std::vector<std::string> memoryBlocks_data;
+    memoryBlocks_data.reserve(memoryBlocks);
+    
+    std::string currentHash = initialHash;
+    
+    // Fill memory with hash chains
+    for (int i = 0; i < memoryBlocks; ++i) {
+        currentHash = sha256(currentHash + std::to_string(i));
+        memoryBlocks_data.push_back(currentHash);
+    }
+    
+    // Step 3: Mix memory blocks (simplified mixing)
+    std::string finalHash = currentHash;
     for (int t = 0; t < timeCost; ++t) {
-        for (int i = 0; i < blocks; ++i) {
-            // Pseudo-random pristup memoriji
-            int prevIndex = (i == 0) ? blocks - 1 : i - 1;
-            int refIndex = (memory[prevIndex][0] * 256 + memory[prevIndex][1]) % blocks;
-            
-            // XOR operacija sa prethodnim blokom
-            for (size_t j = 0; j < memory[i].size(); ++j) {
-                memory[i][j] ^= memory[refIndex][j];
-            }
-            
-            // Dodatno heširanje
-            std::string blockData(memory[i].begin(), memory[i].end());
-            unsigned char hash[SHA256_DIGEST_LENGTH];
-            SHA256(reinterpret_cast<const unsigned char*>(blockData.c_str()), 
-                   blockData.size(), hash);
-            
-            // Upisivanje hash-a nazad u memoriju
-            for (int k = 0; k < 32 && k < memory[i].size(); ++k) {
-                memory[i][k] = hash[k];
-            }
+        for (int i = 0; i < memoryBlocks; ++i) {
+            int idx = i % memoryBlocks_data.size();
+            finalHash = sha256(finalHash + memoryBlocks_data[idx]);
         }
     }
     
-    // Finalni hash - kombinovanje svih blokova
-    std::vector<uint8_t> finalBlock(32, 0);
-    for (const auto& block : memory) {
-        for (size_t i = 0; i < 32 && i < block.size(); ++i) {
-            finalBlock[i] ^= block[i];
-        }
-    }
-    
-    // Konverzija u hex string
-    std::ostringstream oss;
-    for (uint8_t byte : finalBlock) {
-        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(byte);
-    }
-    return oss.str();
+    return finalHash;
 }
 
-bool Argon2Simple::verify(const std::string& password, const std::string& salt,
-                          const std::string& expectedHash, int timeCost, 
-                          int memoryCost, int parallelism) {
-    std::string computedHash = hash(password, salt, timeCost, memoryCost, parallelism);
-    return computedHash == expectedHash;
+bool verifyArgon2Simple(const std::string& password,
+                        const std::string& salt,
+                        const std::string& hash,
+                        int memoryCostKB,
+                        int timeCost) {
+    std::string computed = argon2Simple(password, salt, memoryCostKB, timeCost);
+    return constantTimeCompare(computed, hash);
 }
 
-void Argon2Simple::fillMemory(std::vector<std::vector<uint8_t>>& memory,
-                               const std::string& password, const std::string& salt) {
-    std::string combined = password + salt;
+std::string argon2WithSalt(const std::string& password,
+                           int memoryCostKB,
+                           int timeCost) {
+    std::string salt = generateSalt(16);
+    std::string hash = argon2Simple(password, salt, memoryCostKB, timeCost);
     
-    for (size_t i = 0; i < memory.size(); ++i) {
-        std::string input = combined + std::to_string(i);
-        unsigned char hash[SHA256_DIGEST_LENGTH];
-        SHA256(reinterpret_cast<const unsigned char*>(input.c_str()), 
-               input.size(), hash);
-        
-        // Popunjavanje bloka memorije
-        for (size_t j = 0; j < memory[i].size(); ++j) {
-            memory[i][j] = hash[j % SHA256_DIGEST_LENGTH] ^ (i + j);
-        }
-    }
+    // Format: argon2$memory$time$salt$hash
+    std::stringstream ss;
+    ss << "argon2$" << memoryCostKB << "$" << timeCost << "$" << salt << "$" << hash;
+    return ss.str();
 }
 
-std::vector<uint8_t> Argon2Simple::blake2b(const std::vector<uint8_t>& input, int outLen) {
-    // Pojednostavljena verzija - koristimo SHA256 umesto Blake2b
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256(input.data(), input.size(), hash);
+bool verifyArgon2Hash(const std::string& password, const std::string& hashString) {
+    // Parse format: argon2$memory$time$salt$hash
+    std::vector<std::string> parts;
+    std::stringstream ss(hashString);
+    std::string part;
     
-    std::vector<uint8_t> result(outLen);
-    for (int i = 0; i < outLen; ++i) {
-        result[i] = hash[i % SHA256_DIGEST_LENGTH];
+    while (std::getline(ss, part, '$')) {
+        parts.push_back(part);
     }
-    return result;
+    
+    if (parts.size() != 5 || parts[0] != "argon2") {
+        return false;
+    }
+    
+    int memoryCostKB = std::stoi(parts[1]);
+    int timeCost = std::stoi(parts[2]);
+    std::string salt = parts[3];
+    std::string expectedHash = parts[4];
+    
+    return verifyArgon2Simple(password, salt, expectedHash, memoryCostKB, timeCost);
 }
+
+} // namespace CryptoHash

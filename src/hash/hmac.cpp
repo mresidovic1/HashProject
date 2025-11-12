@@ -1,53 +1,31 @@
 #include "hmac.h"
+#include "../util/util.h"
 #include <openssl/hmac.h>
 #include <openssl/evp.h>
-#include <fstream>
-#include <sstream>
-#include <iomanip>
 
-std::string HMAC::generate(const std::string& key, const std::string& message) {
-    unsigned char result[EVP_MAX_MD_SIZE];
-    unsigned int resultLen;
-    
-    ::HMAC(EVP_sha256(),
-           key.c_str(), key.length(),
-           reinterpret_cast<const unsigned char*>(message.c_str()), message.length(),
-           result, &resultLen);
-    
-    std::ostringstream oss;
-    for (unsigned int i = 0; i < resultLen; ++i) {
-        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(result[i]);
-    }
-    return oss.str();
+namespace CryptoHash {
+
+std::string hmacSHA256(const std::string& message, const std::string& key) {
+    return hmacSHA256(
+        reinterpret_cast<const uint8_t*>(message.c_str()), message.length(),
+        reinterpret_cast<const uint8_t*>(key.c_str()), key.length()
+    );
 }
 
-bool HMAC::verify(const std::string& key, const std::string& message,
-                  const std::string& expectedHMAC) {
-    std::string computedHMAC = generate(key, message);
-    return constantTimeCompare(computedHMAC, expectedHMAC);
+std::string hmacSHA256(const uint8_t* message, size_t messageLen, 
+                       const uint8_t* key, size_t keyLen) {
+    unsigned char hash[EVP_MAX_MD_SIZE];
+    unsigned int hashLen;
+    
+    HMAC(EVP_sha256(), key, keyLen, message, messageLen, hash, &hashLen);
+    
+    return bytesToHex(hash, hashLen);
 }
 
-std::string HMAC::generateForFile(const std::string& key, const std::string& filePath) {
-    std::ifstream file(filePath, std::ios::binary);
-    if (!file.is_open()) {
-        return "";
-    }
-    
-    std::ostringstream contentStream;
-    contentStream << file.rdbuf();
-    std::string content = contentStream.str();
-    
-    return generate(key, content);
+bool verifyHMAC(const std::string& message, const std::string& key, 
+                const std::string& expectedHmac) {
+    std::string computedHmac = hmacSHA256(message, key);
+    return constantTimeCompare(computedHmac, expectedHmac);
 }
 
-bool HMAC::constantTimeCompare(const std::string& a, const std::string& b) {
-    if (a.length() != b.length()) {
-        return false;
-    }
-    
-    volatile int result = 0;
-    for (size_t i = 0; i < a.length(); ++i) {
-        result |= a[i] ^ b[i];
-    }
-    return result == 0;
-}
+} // namespace CryptoHash

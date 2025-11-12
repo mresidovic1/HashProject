@@ -1,46 +1,76 @@
 #include "pbkdf2.h"
+#include "../util/util.h"
 #include <openssl/evp.h>
-#include <openssl/hmac.h>
-#include <cstring>
 #include <sstream>
-#include <iomanip>
 
-std::string PBKDF2::derive(const std::string& password, const std::string& salt, 
-                           int iterations, int keyLength) {
-    std::vector<uint8_t> derivedKey(keyLength);
+namespace CryptoHash {
+
+std::string pbkdf2(const std::string& password, 
+                   const std::string& salt,
+                   int iterations,
+                   int outputLength) {
+    std::vector<uint8_t> output(outputLength);
+    
+    // Convert salt to bytes if it's hex
+    std::vector<uint8_t> saltBytes;
+    if (salt.length() % 2 == 0) {
+        // Try to parse as hex
+        try {
+            saltBytes = hexToBytes(salt);
+        } catch (...) {
+            saltBytes = stringToBytes(salt);
+        }
+    } else {
+        saltBytes = stringToBytes(salt);
+    }
     
     PKCS5_PBKDF2_HMAC(
         password.c_str(), password.length(),
-        reinterpret_cast<const unsigned char*>(salt.c_str()), salt.length(),
+        saltBytes.data(), saltBytes.size(),
         iterations,
         EVP_sha256(),
-        keyLength,
-        derivedKey.data()
+        outputLength,
+        output.data()
     );
     
-    // Konvertovanje u hex string
-    std::ostringstream oss;
-    for (uint8_t byte : derivedKey) {
-        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(byte);
+    return bytesToHex(output);
+}
+
+bool verifyPBKDF2(const std::string& password,
+                  const std::string& salt,
+                  const std::string& hash,
+                  int iterations,
+                  int outputLength) {
+    std::string computed = pbkdf2(password, salt, iterations, outputLength);
+    return constantTimeCompare(computed, hash);
+}
+
+std::string pbkdf2WithSalt(const std::string& password, int iterations) {
+    std::string salt = generateSalt(16);
+    std::string hash = pbkdf2(password, salt, iterations, 32);
+    
+    // Format: iterations$salt$hash
+    std::stringstream ss;
+    ss << iterations << "$" << salt << "$" << hash;
+    return ss.str();
+}
+
+bool verifyPBKDF2Hash(const std::string& password, const std::string& hashString) {
+    // Parse format: iterations$salt$hash
+    size_t firstDollar = hashString.find('$');
+    size_t secondDollar = hashString.find('$', firstDollar + 1);
+    
+    if (firstDollar == std::string::npos || secondDollar == std::string::npos) {
+        return false;
     }
-    return oss.str();
+    
+    int iterations = std::stoi(hashString.substr(0, firstDollar));
+    std::string salt = hashString.substr(firstDollar + 1, secondDollar - firstDollar - 1);
+    std::string expectedHash = hashString.substr(secondDollar + 1);
+    
+    int outputLength = expectedHash.length() / 2; // Hex to bytes
+    
+    return verifyPBKDF2(password, salt, expectedHash, iterations, outputLength);
 }
 
-bool PBKDF2::verify(const std::string& password, const std::string& salt,
-                    const std::string& expectedHash, int iterations) {
-    std::string computedHash = derive(password, salt, iterations, expectedHash.length() / 2);
-    return computedHash == expectedHash;
-}
-
-std::vector<uint8_t> PBKDF2::hmacSHA256(const std::vector<uint8_t>& key,
-                                        const std::vector<uint8_t>& data) {
-    std::vector<uint8_t> result(32);
-    unsigned int len;
-    
-    HMAC(EVP_sha256(), 
-         key.data(), key.size(),
-         data.data(), data.size(),
-         result.data(), &len);
-    
-    return result;
-}
+} // namespace CryptoHash
