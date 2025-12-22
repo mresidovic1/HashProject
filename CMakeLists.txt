@@ -19,6 +19,11 @@ set(SOURCES
     src/basic_crypto_hash.cpp
     src/bdz_mphf.cpp
     src/ultimate_hybrid.cpp
+    src/adaptive_security_hybrid.cpp
+    src/parallel_verification_hybrid.cpp
+    src/cache_partitioned_hybrid.cpp
+    src/ultra_low_memory_hybrid.cpp
+    src/two_path_hybrid.cpp
 )
 
 add_executable(hash_project ${SOURCES})

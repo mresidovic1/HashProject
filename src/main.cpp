@@ -8,6 +8,11 @@
 #include "basic_crypto_hash.hpp"
 #include "bdz_mphf.hpp"
 #include "ultimate_hybrid.hpp"
+#include "adaptive_security_hybrid.hpp"
+#include "parallel_verification_hybrid.hpp"
+#include "cache_partitioned_hybrid.hpp"
+#include "ultra_low_memory_hybrid.hpp"
+#include "two_path_hybrid.hpp"
 
 using namespace hashing;
 
@@ -100,8 +105,45 @@ int main() {
         std::cout << "  Cache efficiency: " << ult_ptr->getCacheEfficiency() << "%\n";
     }
     
+    // Extended Hybrid Models
+    print_header("4. EXTENDED HYBRID MODELS");
+    
+    std::cout << "--- 4.1 Adaptive Security Hybrid ---\n\n";
+    
+    AdaptiveSecurityHybrid ash_low;
+    ash_low.setSecurityLevel(1);
+    benchmark_model(ash_low, keys);
+    
+    AdaptiveSecurityHybrid ash_medium;
+    ash_medium.setSecurityLevel(4);
+    benchmark_model(ash_medium, keys);
+    
+    AdaptiveSecurityHybrid ash_high;
+    ash_high.setSecurityLevel(7);
+    benchmark_model(ash_high, keys);
+    
+    std::cout << "--- 4.2 Parallel Verification Hybrid ---\n\n";
+    
+    ParallelVerificationHybrid pvh;
+    benchmark_model(pvh, keys);
+    
+    std::cout << "--- 4.3 Cache-Partitioned Security Hybrid ---\n\n";
+    
+    CachePartitionedHybrid cpsh;
+    benchmark_model(cpsh, keys);
+    
+    std::cout << "--- 4.4 Ultra-Low-Memory Secure Hybrid ---\n\n";
+    
+    UltraLowMemoryHybrid ulmsh;
+    benchmark_model(ulmsh, keys);
+    
+    std::cout << "--- 4.5 Two-Path Hybrid (Fast + Secure Lanes) ---\n\n";
+    
+    TwoPathHybrid tphfs;
+    benchmark_model(tphfs, keys);
+    
     // Comparison Summary
-    print_header("4. COMPARATIVE SUMMARY");
+    print_header("5. COMPARATIVE SUMMARY");
     
     std::cout << std::left << std::setw(35) << "Model"
               << std::setw(15) << "Memory (bits/key)"
@@ -124,6 +166,30 @@ int main() {
     std::cout << std::setw(35) << "Ultimate Hybrid"
               << std::setw(15) << "~10-15" << std::setw(15) << "~medium"
               << "Secure + Perfect + Fast\n";
+    
+    std::cout << std::setw(35) << "Adaptive Security (Low)"
+              << std::setw(15) << "~11-16" << std::setw(15) << "~very-fast"
+              << "Tunable security\n";
+              
+    std::cout << std::setw(35) << "Adaptive Security (High)"
+              << std::setw(15) << "~11-16" << std::setw(15) << "~medium"
+              << "Full verification\n";
+              
+    std::cout << std::setw(35) << "Parallel Verification"
+              << std::setw(15) << "~12-17" << std::setw(15) << "~fast"
+              << "Latency hiding\n";
+              
+    std::cout << std::setw(35) << "Cache-Partitioned"
+              << std::setw(15) << "~13-18" << std::setw(15) << "~fast"
+              << "Hardware-aware, Bloom\n";
+              
+    std::cout << std::setw(35) << "Ultra-Low-Memory"
+              << std::setw(15) << "~1.5-2.5" << std::setw(15) << "~slower"
+              << "Extreme space\n";
+              
+    std::cout << std::setw(35) << "Two-Path (Fast+Secure)"
+              << std::setw(15) << "~18-24" << std::setw(15) << "~mixed"
+              << "Dual lanes\n";
     
     print_header("EVALUATION COMPLETE");
     
