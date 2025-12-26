@@ -40,8 +40,12 @@ private:
         uint64_t fingerprints[8];
     };
     std::vector<CacheBlock> cache_optimized_storage;
-    
+
+    // Construction statistics
+    ConstructionStats construction_stats;
+
     // Helper functions
+    double compute_chi_square(const std::vector<std::string>& keys) const;
     uint64_t siphash_stage(const std::string& key) const;
     size_t mphf_stage(uint64_t preprocessed) const;
     uint64_t blake3_stage(const std::string& key) const;
@@ -51,14 +55,15 @@ private:
     bool build_mphf(const std::vector<std::string>& keys);
     
 public:
-    std::string getName() const override { 
-        return "Ultimate Hybrid: SipHash + BDZ-MPHF + BLAKE3 + Cache-Aware"; 
+    std::string getName() const override {
+        return "Ultimate Hybrid: SipHash + BDZ-MPHF + BLAKE3 + Cache-Aware";
     }
     void build(const std::vector<std::string>& keys) override;
     uint64_t hash(const std::string& key) const override;
     size_t getMemoryUsage() const override;
     void printStats() const override;
-    
+    ConstructionStats getConstructionStats() const override { return construction_stats; }
+
     // Additional analysis methods
     double getAverageProbeLength() const;
     double getCacheEfficiency() const;
