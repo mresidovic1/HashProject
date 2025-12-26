@@ -1,28 +1,17 @@
 #include "bdz_mphf.hpp"
+#include "murmur_hash.hpp"
 #include <random>
 #include <queue>
 #include <iostream>
+#include <iomanip>
 #include <algorithm>
 #include <array>
 
 namespace hashing {
 
 void BDZ_MPHF::compute_three_hashes(const std::string& key, size_t& h0, size_t& h1, size_t& h2) const {
-    auto hash_with_seed = [](const std::string& s, uint64_t seed) -> uint64_t {
-        uint64_t h = seed;
-        for (char c : s) {
-            h = h * 31 + static_cast<uint64_t>(c);
-        }
-        return h;
-    };
-    
-    h0 = hash_with_seed(key, seeds[0]) % table_size;
-    h1 = hash_with_seed(key, seeds[1]) % table_size;
-    h2 = hash_with_seed(key, seeds[2]) % table_size;
-    
-    // Ensure uniqueness
-    if (h1 == h0) h1 = (h1 + 1) % table_size;
-    if (h2 == h0 || h2 == h1) h2 = (h2 + 1) % table_size;
+    // Use MurmurHash3 for high-quality, independent hash functions
+    MurmurHash3::hash_triple(key, seeds[0], seeds[1], seeds[2], h0, h1, h2, table_size);
 }
 
 uint8_t BDZ_MPHF::get_g_value(size_t index) const {
@@ -142,27 +131,58 @@ bool BDZ_MPHF::build_graph_and_assign(const std::vector<std::string>& keys) {
     return true;
 }
 
+double BDZ_MPHF::compute_chi_square(const std::vector<std::string>& keys) const {
+    // Compute chi-square statistic for hash distribution quality
+    // Tests if hash values are uniformly distributed across buckets
+    std::vector<size_t> bucket_counts(num_keys, 0);
+
+    for (const auto& key : keys) {
+        uint64_t h = hash(key);
+        if (h < num_keys) {
+            bucket_counts[h]++;
+        }
+    }
+
+    double expected = static_cast<double>(keys.size()) / num_keys;
+    double chi_square = 0.0;
+
+    for (size_t count : bucket_counts) {
+        double diff = count - expected;
+        chi_square += (diff * diff) / expected;
+    }
+
+    return chi_square;
+}
+
 void BDZ_MPHF::build(const std::vector<std::string>& keys) {
     num_keys = keys.size();
     table_size = static_cast<size_t>(1.23 * num_keys);  // BDZ requires ~1.23n space
-    
+
     g_values.resize((table_size + 3) / 4, 0);
-    
+
     std::random_device rd;
     std::mt19937_64 gen(rd());
-    
+
+    construction_stats = ConstructionStats();
     bool success = false;
+
     for (int attempt = 0; attempt < 100 && !success; attempt++) {
+        construction_stats.attempts++;
         seeds[0] = gen();
         seeds[1] = gen();
         seeds[2] = gen();
-        
+
         std::fill(g_values.begin(), g_values.end(), 0);
         success = build_graph_and_assign(keys);
     }
-    
+
+    construction_stats.success = success;
+
     if (!success) {
         std::cerr << "Warning: BDZ MPHF construction failed after 100 attempts\n";
+    } else {
+        // Compute chi-square statistic for the successful build
+        construction_stats.chi_square = compute_chi_square(keys);
     }
 }
 
@@ -183,9 +203,17 @@ size_t BDZ_MPHF::getMemoryUsage() const {
 
 void BDZ_MPHF::printStats() const {
     std::cout << "  Table size: " << table_size << " (" << (double)table_size / num_keys << "x keys)\n";
-    std::cout << "  Memory: " << g_values.size() << " bytes (" 
+    std::cout << "  Memory: " << g_values.size() << " bytes ("
               << (g_values.size() * 8.0 / num_keys) << " bits/key)\n";
     std::cout << "  Theoretical minimum: ~1.44 bits/key\n";
+
+    if (construction_stats.success) {
+        std::cout << "  Construction attempts: " << construction_stats.attempts << "\n";
+        std::cout << "  Chi-square statistic: " << std::fixed << std::setprecision(2)
+                  << construction_stats.chi_square << " (lower is better)\n";
+        // For reference: expected chi-square for uniform distribution is approximately (buckets - 1)
+        std::cout << "  Expected χ² for uniform: ~" << (num_keys - 1) << "\n";
+    }
 }
 
 } // namespace hashing
