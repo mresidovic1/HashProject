@@ -29,13 +29,16 @@ private:
     
     uint8_t security_level; // 0-7, controls verification frequency
     
+    ConstructionStats construction_stats;
+
     uint64_t siphash_stage(const std::string& key) const;
     size_t mphf_stage(uint64_t preprocessed) const;
     uint64_t blake3_stage(const std::string& key) const;
     void compute_mphf_hashes(uint64_t preprocessed, size_t& h0, size_t& h1, size_t& h2) const;
     bool build_mphf(const std::vector<std::string>& keys);
     bool should_verify(const std::string& key) const;
-    
+    double compute_chi_square(const std::vector<std::string>& keys) const;
+
 public:
     AdaptiveSecurityHybrid() : security_level(4) {} // Default: medium
     
@@ -47,6 +50,7 @@ public:
     uint64_t hash(const std::string& key) const override;
     size_t getMemoryUsage() const override;
     void printStats() const override;
+    ConstructionStats getConstructionStats() const override { return construction_stats; }
 };
 
 } // namespace hashing

@@ -1,4 +1,5 @@
 #include "parallel_verification_hybrid.hpp"
+#include "murmur_hash.hpp"
 #include <random>
 #include <iostream>
 #include <iomanip>
@@ -10,6 +11,7 @@
 namespace hashing {
 
 #define ROTL(x, b) (uint64_t)(((x) << (b)) | ((x) >> (64 - (b))))
+#define ROTL32(x, b) (uint32_t)(((x) << (b)) | ((x) >> (32 - (b))))
 #define SIPROUND \
     do { \
         v0 += v1; v1 = ROTL(v1, 13); v1 ^= v0; v0 = ROTL(v0, 32); \
@@ -63,26 +65,38 @@ uint64_t ParallelVerificationHybrid::blake3_stage(const std::string& key) const 
         0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A,
         0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19
     };
-    
+
     uint32_t state[8];
     std::memcpy(state, IV, sizeof(state));
-    
+
+    // Improved mixing with multiple rounds for better avalanche effect
     for (size_t i = 0; i < key.size(); i++) {
         uint32_t c = static_cast<uint32_t>(key[i]);
-        state[i % 8] ^= c;
-        state[(i + 1) % 8] = ROTL(state[(i + 1) % 8], 7) ^ state[i % 8];
+        size_t idx = i % 8;
+        state[idx] ^= c;
+        state[(idx + 1) % 8] ^= ROTL32(state[idx], 7);
+        state[(idx + 2) % 8] ^= ROTL32(state[idx], 13);
+        state[(idx + 3) % 8] ^= ROTL32(state[idx], 16);
     }
-    
-    return (static_cast<uint64_t>(state[0]) << 32) | state[1];
+
+    // Final mixing round
+    for (int i = 0; i < 8; i++) {
+        state[i] = ROTL32(state[i], 11) ^ state[(i + 1) % 8];
+    }
+
+    // Use XOR of all state words
+    uint64_t result = 0;
+    for (int i = 0; i < 8; i++) {
+        result ^= static_cast<uint64_t>(state[i]) << ((i % 2) * 32);
+    }
+    return result;
 }
 
 void ParallelVerificationHybrid::compute_mphf_hashes(uint64_t preprocessed, size_t& h0, size_t& h1, size_t& h2) const {
-    h0 = (preprocessed ^ mphf_seeds[0]) % table_size;
-    h1 = ((preprocessed >> 16) ^ mphf_seeds[1]) % table_size;
-    h2 = ((preprocessed >> 32) ^ mphf_seeds[2]) % table_size;
-    
-    if (h1 == h0) h1 = (h1 + 1) % table_size;
-    if (h2 == h0 || h2 == h1) h2 = (h2 + 1) % table_size;
+    // Use MurmurHash3 for high-quality, independent hash functions
+    std::string preprocessed_str = std::to_string(preprocessed);
+    MurmurHash3::hash_triple(preprocessed_str, mphf_seeds[0], mphf_seeds[1], mphf_seeds[2],
+                             h0, h1, h2, table_size);
 }
 
 size_t ParallelVerificationHybrid::mphf_stage(uint64_t preprocessed) const {
@@ -189,38 +203,68 @@ bool ParallelVerificationHybrid::build_mphf(const std::vector<std::string>& keys
     return true;
 }
 
+double ParallelVerificationHybrid::compute_chi_square(const std::vector<std::string>& keys) const {
+    std::vector<size_t> bucket_counts(num_keys, 0);
+
+    for (const auto& key : keys) {
+        uint64_t h = hash(key);
+        if (h < num_keys) {
+            bucket_counts[h]++;
+        }
+    }
+
+    double expected = static_cast<double>(keys.size()) / num_keys;
+    double chi_square = 0.0;
+
+    for (size_t count : bucket_counts) {
+        double diff = count - expected;
+        chi_square += (diff * diff) / expected;
+    }
+
+    return chi_square;
+}
+
 void ParallelVerificationHybrid::build(const std::vector<std::string>& keys) {
     num_keys = keys.size();
     table_size = static_cast<size_t>(1.23 * num_keys);
-    
+
     std::random_device rd;
     std::mt19937_64 gen(rd());
-    
+
     sip_key0 = gen();
     sip_key1 = gen();
     mphf_seeds[0] = gen();
     mphf_seeds[1] = gen();
     mphf_seeds[2] = gen();
-    
+
+    // Initialize construction statistics
+    construction_stats = ConstructionStats();
+
     bool success = false;
-    int attempts = 0;
-    while (!success && attempts < 10) {
+    for (int attempt = 0; attempt < 100 && !success; attempt++) {
+        construction_stats.attempts++;
         success = build_mphf(keys);
         if (!success) {
             mphf_seeds[0] = gen();
             mphf_seeds[1] = gen();
             mphf_seeds[2] = gen();
-            attempts++;
         }
     }
-    
+
+    construction_stats.success = success;
+
     blake3_fingerprints.resize(num_keys);
     for (size_t i = 0; i < num_keys; i++) {
         blake3_fingerprints[i] = blake3_stage(keys[i]);
     }
-    
+
     // Build prefetch hints (cache line indices)
     prefetch_hints.resize((num_keys + 7) / 8, 0);
+
+    // Compute chi-square for successful builds
+    if (success) {
+        construction_stats.chi_square = compute_chi_square(keys);
+    }
 }
 
 uint64_t ParallelVerificationHybrid::hash(const std::string& key) const {
@@ -258,6 +302,13 @@ void ParallelVerificationHybrid::printStats() const {
     std::cout << "  MPHF Space: " << g_table.size() << " bytes\n";
     std::cout << "  Fingerprints: " << blake3_fingerprints.size() * 8 << " bytes\n";
     std::cout << "  Prefetch Metadata: " << prefetch_hints.size() << " bytes\n";
+
+    if (construction_stats.success) {
+        std::cout << "  Construction attempts: " << construction_stats.attempts << "\n";
+        std::cout << "  Chi-square statistic: " << std::fixed << std::setprecision(2)
+                  << construction_stats.chi_square << " (lower is better)\n";
+        std::cout << "  Expected chi-square for uniform: ~" << (num_keys - 1) << "\n";
+    }
 }
 
 } // namespace hashing

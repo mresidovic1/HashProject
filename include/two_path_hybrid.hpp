@@ -29,7 +29,9 @@ private:
     std::vector<uint64_t> secure_fingerprints;
     
     size_t num_keys;
-    
+
+    ConstructionStats construction_stats;
+
     // Routing
     bool route_to_secure_lane(const std::string& key) const;
     
@@ -42,11 +44,12 @@ private:
     size_t secure_mphf(uint64_t preprocessed) const;
     uint64_t blake3_stage(const std::string& key) const;
     
-    void compute_mphf_hashes(uint64_t preprocessed, const uint64_t seeds[3], 
+    void compute_mphf_hashes(uint64_t preprocessed, const uint64_t seeds[3],
                             size_t table_sz, size_t& h0, size_t& h1, size_t& h2) const;
     bool build_mphf(const std::vector<std::string>& keys, std::vector<uint8_t>& g_table,
                    size_t table_sz, const uint64_t seeds[3], uint64_t sip_k0, uint64_t sip_k1);
-    
+    double compute_chi_square(const std::vector<std::string>& keys) const;
+
 public:
     std::string getName() const override { 
         return "Two-Path Hybrid: Dual (Fast + Secure) Lanes"; 
@@ -55,6 +58,7 @@ public:
     uint64_t hash(const std::string& key) const override;
     size_t getMemoryUsage() const override;
     void printStats() const override;
+    ConstructionStats getConstructionStats() const override { return construction_stats; }
 };
 
 } // namespace hashing

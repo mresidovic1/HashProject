@@ -23,15 +23,18 @@ private:
     size_t num_keys;
     size_t table_size;
     uint64_t mphf_seeds[3];
-    
+
     // NO stored fingerprints - recompute on demand!
-    
+
+    ConstructionStats construction_stats;
+
     uint64_t siphash_stage(const std::string& key) const;
     size_t mphf_stage(uint64_t preprocessed) const;
     uint64_t blake3_stage(const std::string& key) const;
     void compute_mphf_hashes(uint64_t preprocessed, size_t& h0, size_t& h1, size_t& h2) const;
     bool build_mphf(const std::vector<std::string>& keys);
-    
+    double compute_chi_square(const std::vector<std::string>& keys) const;
+
 public:
     std::string getName() const override { 
         return "Ultra-Low-Memory Hybrid: SipHash + Compact-MPHF + Streaming-BLAKE3"; 
@@ -40,6 +43,7 @@ public:
     uint64_t hash(const std::string& key) const override;
     size_t getMemoryUsage() const override;
     void printStats() const override;
+    ConstructionStats getConstructionStats() const override { return construction_stats; }
 };
 
 } // namespace hashing
