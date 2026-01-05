@@ -9,6 +9,7 @@
 ## PROJECT CONTEXT
 
 This document extends the baseline implementation featuring:
+
 - **Basic Perfect Hash (FKS)**: Two-level collision-free hashing
 - **Basic Cryptographic Hash (SHA-256)**: Secure hashing with preimage resistance
 - **BDZ Minimal Perfect Hash Function**: Space-efficient perfect hashing (2-3 bits/key)
@@ -40,6 +41,7 @@ Return: Perfect hash + verification
 ```
 
 **Performance Characteristics:**
+
 - Build time: ~45-60 ms
 - Avg lookup: ~180-250 ns
 - Memory: ~10-15 bits/key
@@ -56,6 +58,7 @@ Return: Perfect hash + verification
 **Strategy:** Conditional cryptographic verification based on runtime security level
 
 #### Architecture
+
 ```
 Input Key
     |
@@ -77,11 +80,13 @@ Input Key
 ```
 
 #### Design Motivation
+
 - **Problem:** Ultimate Hybrid performs full cryptographic verification on every lookup, even when threat level is low
 - **Solution:** Runtime-adjustable security parameter trades verification cost for performance
 - **Use Case:** Services with dynamic threat exposure (e.g., rate-limited after attack detection)
 
 #### Implementation Details
+
 - **Security Levels:** 3-bit field (0-7) controlling verification frequency
 - **Sampling Strategy:** Deterministic sampling using key fingerprint mod N
 - **Fallback:** Always verify on cache miss to prevent bypass attacks
@@ -102,6 +107,7 @@ Security properties:  DoS resistant, tunable cryptographic guarantee
 ```
 
 **Trade-offs:**
+
 - **Gains:** 2x speedup in low-security mode, adaptive resource allocation
 - **Costs:** Slightly increased complexity, weaker security in low/med modes
 - **Best for:** Applications with variable threat models (e.g., content delivery under DDoS)
@@ -114,6 +120,7 @@ Security properties:  DoS resistant, tunable cryptographic guarantee
 **Strategy:** Latency-hiding through concurrent hash and verify operations
 
 #### Architecture
+
 ```
 Input Key ─────┬─────────────────┬──────────────────┐
                │                 │                  │
@@ -132,11 +139,13 @@ Input Key ─────┬─────────────────�
 ```
 
 #### Design Motivation
+
 - **Problem:** Sequential pipeline stalls on cryptographic verification
 - **Solution:** Overlap BLAKE3 computation with MPHF lookup and memory fetch
 - **Use Case:** High-throughput systems with wide execution units (modern CPUs)
 
 #### Implementation Details
+
 - **Concurrency Model:** Software pipelining with 2 parallel tracks
 - **Synchronization:** Spinlock-free join using atomic completion flags
 - **Prefetching:** Explicit prefetch of g-table entries during BLAKE3 rounds
@@ -155,6 +164,7 @@ Security properties:  Full DoS + cryptographic, no compromise
 ```
 
 **Trade-offs:**
+
 - **Gains:** Lower latency without security reduction, better CPU utilization
 - **Costs:** More complex control flow, requires multi-core or wide pipelines
 - **Best for:** Server applications with parallel execution resources
@@ -167,6 +177,7 @@ Security properties:  Full DoS + cryptographic, no compromise
 **Strategy:** Hardware-aware data layout separating hot and cold paths
 
 #### Architecture
+
 ```
 L1 Cache Partition (Hot):
 ┌─────────────────────────────┐
@@ -192,11 +203,13 @@ Key → SipHash → Bloom → g-table → [Hit?] → BLAKE3 → Return
 ```
 
 #### Design Motivation
+
 - **Problem:** Cache-oblivious structures waste limited L1/L2 capacity
 - **Solution:** Explicit cache residency control using partitioned layout
 - **Use Case:** Memory-constrained embedded systems or real-time applications
 
 #### Implementation Details
+
 - **L1 Layout:** SipHash state + compressed g-table fit in 9KB
 - **Bloom Filter:** 8192-bit filter (1 bit/key) for negative hit detection
 - **BLAKE3 Deferral:** Fingerprints fetched only after MPHF confirms presence
@@ -216,6 +229,7 @@ Security properties:  DoS resistant + crypto, cache-timing resistant
 ```
 
 **Trade-offs:**
+
 - **Gains:** Excellent cache hit rates, fast negative lookups, predictable latency
 - **Costs:** Extra Bloom overhead, more complex memory management
 - **Best for:** Real-time systems, high hit-rate read-heavy workloads
@@ -228,6 +242,7 @@ Security properties:  DoS resistant + crypto, cache-timing resistant
 **Strategy:** Minimal storage by omitting verification table, using streaming crypto
 
 #### Architecture
+
 ```
 Input Key
     |
@@ -245,11 +260,13 @@ Return: hash (no stored fingerprints)
 ```
 
 #### Design Motivation
+
 - **Problem:** BLAKE3 fingerprint storage dominates memory usage (~64 bits/key)
 - **Solution:** Recompute verification hash on-demand instead of storing
 - **Use Case:** IoT devices, network switches, ultra-high-cardinality sets
 
 #### Implementation Details
+
 - **MPHF:** RecSplit instead of BDZ for sub-1-bit/key encoding
 - **Verification:** BLAKE3 recomputed per lookup (no stored fingerprints)
 - **Trade:** 2-3x slower lookup for 90% memory reduction
@@ -268,6 +285,7 @@ Security properties:  Full DoS + crypto, no storage compromise
 ```
 
 **Trade-offs:**
+
 - **Gains:** Extreme space efficiency, suitable for billion-key sets
 - **Costs:** Significantly slower lookups, higher CPU per operation
 - **Best for:** Space-constrained environments, archival/cold storage queries
@@ -280,6 +298,7 @@ Security properties:  Full DoS + crypto, no storage compromise
 **Strategy:** Parallel hash tables optimized for different query types
 
 #### Architecture
+
 ```
 Input Key → [Router: Hash(key) & 0x01]
               |
@@ -306,11 +325,13 @@ Router Decision:
 ```
 
 #### Design Motivation
+
 - **Problem:** One-size-fits-all design wastes resources on low-risk keys
 - **Solution:** Duplicate structures optimized for speed vs. security
 - **Use Case:** Mixed workloads (e.g., internal vs. external API requests)
 
 #### Implementation Details
+
 - **Dual MPHFs:** CHD (1.5 bits/key, fast) + BDZ (2.3 bits/key, verified)
 - **Routing:** Consistent hash-based lane assignment (deterministic)
 - **Memory:** 2x structure overhead, but each optimized independently
@@ -331,6 +352,7 @@ Security properties:  Per-lane security (50% DoS + crypto)
 ```
 
 **Trade-offs:**
+
 - **Gains:** Best-of-both-worlds for heterogeneous workloads
 - **Costs:** 2x memory, complex routing logic
 - **Best for:** Multi-tenant systems, tiered service levels (free vs. paid)
@@ -339,17 +361,17 @@ Security properties:  Per-lane security (50% DoS + crypto)
 
 ## COMPARATIVE SUMMARY TABLE
 
-| Model                          | Memory (bits/key) | Lookup (ns)    | Build (ms) | Security Level          | Best Use Case                    |
-|--------------------------------|-------------------|----------------|------------|-------------------------|----------------------------------|
-| **Basic Perfect (FKS)**        | ~32-64            | ~40-80         | ~20-35     | None                    | Trusted, static datasets         |
-| **Basic Crypto (SHA-256)**     | 0                 | ~800-1200      | ~15-25     | Full                    | Stateless verification           |
-| **BDZ MPHF**                   | ~2.3              | ~60-100        | ~30-45     | None                    | Space-critical applications      |
-| **Ultimate Hybrid** (baseline) | ~10-15            | ~180-250       | ~45-60     | DoS + Crypto            | Balanced security/performance    |
-| **Adaptive Security (ASH)**    | ~11-16            | ~95-240        | ~50-55     | Tunable                 | Variable threat environments     |
-| **Parallel Verification (PVH)**| ~12-17            | ~130-170       | ~48-58     | DoS + Crypto            | High-throughput servers          |
-| **Cache-Partitioned (CPSH)**   | ~13-18            | ~140-180 (hit) | ~55-70     | DoS + Crypto + Timing   | Real-time systems                |
-| **Ultra-Low-Memory (ULMSH)**   | ~1.5-2.5          | ~400-550       | ~80-120    | DoS + Crypto            | IoT, billion-key sets            |
-| **Two-Path (TPHFS)**           | ~18-24            | ~60-240        | ~90-110    | Lane-dependent          | Multi-tenant/tiered services     |
+| Model                           | Memory (bits/key) | Lookup (ns)    | Build (ms) | Security Level        | Best Use Case                 |
+| ------------------------------- | ----------------- | -------------- | ---------- | --------------------- | ----------------------------- |
+| **Basic Perfect (FKS)**         | ~32-64            | ~40-80         | ~20-35     | None                  | Trusted, static datasets      |
+| **Basic Crypto (SHA-256)**      | 0                 | ~800-1200      | ~15-25     | Full                  | Stateless verification        |
+| **BDZ MPHF**                    | ~2.3              | ~60-100        | ~30-45     | None                  | Space-critical applications   |
+| **Ultimate Hybrid** (baseline)  | ~10-15            | ~180-250       | ~45-60     | DoS + Crypto          | Balanced security/performance |
+| **Adaptive Security (ASH)**     | ~11-16            | ~95-240        | ~50-55     | Tunable               | Variable threat environments  |
+| **Parallel Verification (PVH)** | ~12-17            | ~130-170       | ~48-58     | DoS + Crypto          | High-throughput servers       |
+| **Cache-Partitioned (CPSH)**    | ~13-18            | ~140-180 (hit) | ~55-70     | DoS + Crypto + Timing | Real-time systems             |
+| **Ultra-Low-Memory (ULMSH)**    | ~1.5-2.5          | ~400-550       | ~80-120    | DoS + Crypto          | IoT, billion-key sets         |
+| **Two-Path (TPHFS)**            | ~18-24            | ~60-240        | ~90-110    | Lane-dependent        | Multi-tenant/tiered services  |
 
 ---
 
@@ -383,11 +405,13 @@ Security-Focused:
 ### 1. Composition Strategies
 
 **Sequential Pipelines (Ultimate, Adaptive, ULMSH):**
+
 - Simpler control flow
 - Predictable latency
 - Limited parallelism exploitation
 
 **Parallel Pipelines (PVH, Two-Path):**
+
 - Better CPU utilization
 - Complex synchronization
 - Higher throughput potential
@@ -395,29 +419,33 @@ Security-Focused:
 ### 2. Memory Hierarchy Awareness
 
 **Cache-Oblivious (Ultimate, BDZ):**
+
 - Simpler implementation
 - Unpredictable performance
 
 **Cache-Conscious (CPSH, Two-Path fast lane):**
+
 - Explicit layout control
 - Better real-world performance
 - Hardware-dependent tuning
 
 ### 3. Security vs. Performance Tradeoffs
 
-| Dimension            | High Security           | High Performance        |
-|----------------------|-------------------------|-------------------------|
-| DoS Resistance       | SipHash-2-4             | SipHash-1-2 / CHD       |
-| Verification         | Every lookup (BLAKE3)   | Sampled / None          |
-| Storage              | Full fingerprints       | Recompute on-demand     |
-| Memory Safety        | Bounds checks           | Unchecked (trusted env) |
+| Dimension      | High Security         | High Performance        |
+| -------------- | --------------------- | ----------------------- |
+| DoS Resistance | SipHash-2-4           | SipHash-1-2 / CHD       |
+| Verification   | Every lookup (BLAKE3) | Sampled / None          |
+| Storage        | Full fingerprints     | Recompute on-demand     |
+| Memory Safety  | Bounds checks         | Unchecked (trusted env) |
 
 ---
 
 ## IMPLEMENTATION RECOMMENDATIONS
 
 ### Integration Strategy
+
 Each model would be implemented as:
+
 ```cpp
 class AdaptiveSecurityHybrid : public HashModel {
     // Extends Ultimate Hybrid with security_level parameter
@@ -427,6 +455,7 @@ class AdaptiveSecurityHybrid : public HashModel {
 ```
 
 ### Benchmark Modifications
+
 ```cpp
 // In main.cpp - add after Ultimate Hybrid section
 print_header("4. EXTENDED HYBRID MODELS");
@@ -448,18 +477,22 @@ benchmark_model(pvh, keys);
 ## ACADEMIC CONTEXT & LIMITATIONS
 
 ### Educational Focus
+
 This project explores **design space exploration** of hybrid hashing models in an advanced algorithms course. The emphasis is on:
+
 - Architectural trade-offs (speed, space, security)
 - Component composition strategies
 - Performance modeling and benchmarking
 
 ### Limitations
+
 1. **Not Production Cryptography:** Simplified BLAKE3/SipHash implementations for educational purposes
 2. **Synthetic Benchmarks:** Real-world key distributions may differ
 3. **Single-threaded Evaluation:** Concurrent access patterns not modeled
 4. **Platform-specific:** Cache parameters tuned for x86-64 desktop CPUs
 
 ### Future Extensions
+
 - **Dynamic Hybrid Switching:** Runtime model selection based on workload
 - **Learned Index Integration:** Replace MPHF with ML-based perfect hashing
 - **SIMD Optimization:** Vectorized verification operations
@@ -484,4 +517,4 @@ Each model occupies a distinct point in the performance/security/space trade-off
 ---
 
 **End of Extended Evaluation**  
-*Advanced Algorithms and Data Structures | Hybrid Hashing Models Project*
+_Advanced Algorithms and Data Structures | Hybrid Hashing Models Project_

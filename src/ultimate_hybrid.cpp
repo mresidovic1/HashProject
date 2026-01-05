@@ -8,6 +8,11 @@
 #include <queue>
 #include <array>
 
+// MSVC ne podrzava __builtin_prefetch, definisemo praznu verziju
+#ifdef _MSC_VER
+    #define __builtin_prefetch(addr, rw, locality) ((void)0)
+#endif
+
 namespace hashing {
 
 // SipHash implementation

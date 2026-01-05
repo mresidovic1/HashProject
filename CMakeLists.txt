@@ -13,8 +13,7 @@ endif()
 
 include_directories(${PROJECT_SOURCE_DIR}/include)
 
-set(SOURCES
-    src/main.cpp
+set(COMMON_SOURCES
     src/basic_perfect_hash.cpp
     src/basic_crypto_hash.cpp
     src/bdz_mphf.cpp
@@ -26,9 +25,14 @@ set(SOURCES
     src/two_path_hybrid.cpp
 )
 
-add_executable(hash_project ${SOURCES})
+# Original main executable
+add_executable(hash_project src/main.cpp ${COMMON_SOURCES})
+
+# Throughput benchmark executable
+add_executable(throughput_benchmark src/throughput_benchmark.cpp ${COMMON_SOURCES})
 
 # Enable Link Time Optimization
 if(NOT MSVC)
     set_target_properties(hash_project PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
+    set_target_properties(throughput_benchmark PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
 endif()
